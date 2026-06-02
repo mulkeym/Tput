@@ -1,0 +1,274 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Tput — RAMPART Benchmark</title>
+  <link rel="stylesheet" href="/static/style.css">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+</head>
+<body>
+<div class="app">
+
+  <!-- ══════════════ LEFT PANEL ══════════════ -->
+  <div class="left-panel">
+
+    <!-- App Header -->
+    <div class="app-header">
+      <span class="app-logo">Tput</span>
+      <span class="app-subtitle">RAMPART Benchmark</span>
+    </div>
+
+    <!-- Connection -->
+    <div class="section">
+      <div class="section-label">Connection</div>
+      <div class="input-field">
+        <label for="endpoint">Endpoint URL</label>
+        <input
+          type="url"
+          id="endpoint"
+          placeholder="https://api.example.com/v1/evaluate"
+          autocomplete="off"
+          spellcheck="false"
+        >
+      </div>
+      <div class="input-field mt-2">
+        <label for="apikey">API Key</label>
+        <input
+          type="password"
+          id="apikey"
+          placeholder="sk-••••••••••••••••"
+          autocomplete="off"
+        >
+      </div>
+    </div>
+
+    <!-- Benchmark Config -->
+    <div class="section">
+      <div class="section-label">Benchmark Config</div>
+      <div class="input-group">
+        <div class="input-field">
+          <label for="start-conc">Start Concurrency</label>
+          <input type="number" id="start-conc" value="1" min="1" max="100">
+        </div>
+        <div class="input-field">
+          <label for="step-size">Step Size</label>
+          <input type="number" id="step-size" value="5" min="1" max="50">
+        </div>
+        <div class="input-field">
+          <label for="max-conc">Max Concurrency</label>
+          <input type="number" id="max-conc" value="200" min="1" max="1000">
+        </div>
+        <div class="input-field">
+          <label for="req-per-level">Requests / Level</label>
+          <input type="number" id="req-per-level" value="50" min="1" max="500">
+        </div>
+      </div>
+      <div class="input-field mt-2">
+        <label for="threshold">Latency Threshold (s)</label>
+        <input type="number" id="threshold" value="2.0" min="0.1" step="0.1">
+      </div>
+    </div>
+
+    <!-- Prompt Builder -->
+    <div class="section">
+      <div class="section-label">Prompt Builder</div>
+
+      <!-- PII Pills -->
+      <div class="pill-group-label">PII Generators</div>
+      <div class="pill-container" id="pii-pills">
+        <span class="pill pii" data-gen="ssn">+ SSN</span>
+        <span class="pill pii" data-gen="name">+ Name</span>
+        <span class="pill pii" data-gen="email">+ Email</span>
+        <span class="pill pii" data-gen="phone">+ Phone</span>
+        <span class="pill pii" data-gen="address">+ Address</span>
+        <span class="pill pii" data-gen="dob">+ DOB</span>
+        <span class="pill pii" data-gen="credit_card">+ Credit Card</span>
+      </div>
+
+      <!-- PHI Pills -->
+      <div class="pill-group-label mt-1">PHI Generators</div>
+      <div class="pill-container" id="phi-pills">
+        <span class="pill phi" data-gen="mrn">+ MRN</span>
+        <span class="pill phi" data-gen="diagnosis">+ Diagnosis</span>
+        <span class="pill phi" data-gen="medication">+ Medication</span>
+        <span class="pill phi" data-gen="provider">+ Provider</span>
+        <span class="pill phi" data-gen="insurance_id">+ Insurance</span>
+        <span class="pill phi" data-gen="lab_result">+ Lab Result</span>
+      </div>
+
+      <!-- Prompt Textarea -->
+      <div class="input-field mt-2">
+        <label for="prompt-text">Prompt Template</label>
+        <textarea
+          id="prompt-text"
+          rows="5"
+          placeholder="Enter your prompt here. Click pills above to insert {placeholders}..."
+          spellcheck="false"
+        ></textarea>
+      </div>
+
+      <!-- Image Drop Zone -->
+      <div class="input-field mt-2">
+        <label>Image (optional)</label>
+        <div class="image-drop" id="image-drop">
+          <span class="drop-icon">&#128247;</span>
+          <span>Drop image, paste (Ctrl+V), or click to upload</span>
+          <span class="drop-hint">PNG, JPG, GIF, WEBP</span>
+        </div>
+        <div class="image-preview hidden" id="image-preview">
+          <img id="preview-img" src="" alt="Preview">
+          <button id="remove-image" title="Remove image">&#x2715;</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Actions -->
+    <div class="section">
+      <div class="action-row">
+        <button class="btn-primary" id="start-btn">&#9654; Start Benchmark</button>
+        <button class="btn-stop" id="stop-btn" disabled>&#9632; Stop</button>
+      </div>
+    </div>
+
+  </div>
+  <!-- /LEFT PANEL -->
+
+  <!-- ══════════════ RIGHT PANEL ══════════════ -->
+  <div class="right-panel">
+
+    <!-- Status Bar -->
+    <div class="status-bar">
+      <span class="status-dot idle" id="status-dot"></span>
+      <span class="status-text" id="status-text">Idle</span>
+      <span class="status-detail" id="status-detail">Configure and start a benchmark run</span>
+    </div>
+
+    <!-- Stat Cards -->
+    <div class="stat-cards">
+      <div class="stat-card">
+        <div class="stat-label">Max Safe Concurrency</div>
+        <div class="stat-value green" id="stat-max-conc">—</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Avg Latency</div>
+        <div class="stat-value amber" id="stat-avg-lat">—</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Success Rate</div>
+        <div class="stat-value cyan" id="stat-success">—</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Throughput (RPS)</div>
+        <div class="stat-value purple" id="stat-rps">—</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Error Rate</div>
+        <div class="stat-value red" id="stat-errors">—</div>
+      </div>
+    </div>
+
+    <!-- Latency Chart -->
+    <div class="chart-container">
+      <div class="chart-header">
+        <span class="chart-title">Latency by Concurrency Level</span>
+        <div class="chart-legend">
+          <div class="legend-item">
+            <div class="legend-dot" style="background:#4ade80"></div>
+            <span>Avg &lt;50%</span>
+          </div>
+          <div class="legend-item">
+            <div class="legend-dot" style="background:#fbbf24"></div>
+            <span>Avg 50–100%</span>
+          </div>
+          <div class="legend-item">
+            <div class="legend-dot" style="background:#f87171"></div>
+            <span>Avg &gt;100%</span>
+          </div>
+          <div class="legend-item">
+            <div class="legend-line" style="background:#fbbf24"></div>
+            <span>p95</span>
+          </div>
+          <div class="legend-item">
+            <div class="legend-line" style="background:#f87171"></div>
+            <span>p99</span>
+          </div>
+        </div>
+      </div>
+      <div class="chart-canvas-wrap">
+        <canvas id="latency-chart"></canvas>
+      </div>
+    </div>
+
+    <!-- Bottom Grid -->
+    <div class="bottom-grid">
+
+      <!-- Percentile Table -->
+      <div class="panel">
+        <div class="panel-header">
+          <span class="panel-title">Latency Percentiles (s)</span>
+        </div>
+        <div class="perc-scroll">
+          <table class="perc-table">
+            <thead>
+              <tr>
+                <th>Conc.</th>
+                <th>p50</th>
+                <th>p95</th>
+                <th>p99</th>
+                <th>Avg</th>
+              </tr>
+            </thead>
+            <tbody id="perc-tbody">
+              <tr class="empty-row">
+                <td colspan="5" style="text-align:center;color:var(--text-muted);padding:16px 0;">
+                  No data yet
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Violations & Errors -->
+      <div style="display:flex;flex-direction:column;gap:12px;">
+
+        <!-- Violations -->
+        <div class="panel">
+          <div class="panel-header">
+            <span class="panel-title">Policy Violations</span>
+          </div>
+          <div class="violations-scroll" id="violations-container">
+            <div class="empty-state" style="min-height:60px;padding:12px 0;">
+              <span class="empty-sub">No violations detected</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Error Log -->
+        <div class="panel">
+          <div class="panel-header">
+            <span class="panel-title">Error Log</span>
+          </div>
+          <div class="error-log" id="error-log">
+            <div class="empty-state" style="min-height:60px;padding:12px 0;">
+              <span class="empty-sub">No errors</span>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- Export Row -->
+    <div class="export-row">
+      <button class="btn-export" id="export-btn" disabled>&#8681; Export PDF Report</button>
+    </div>
+
+  </div>
+  <!-- /RIGHT PANEL -->
+
+</div>
+<script src="/static/app.js"></script>
+</body>
+</html>
