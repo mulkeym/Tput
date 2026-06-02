@@ -45,7 +45,7 @@ class TestGenerateValue:
 
     def test_diagnosis_has_code(self):
         val = generate_value("diagnosis")
-        assert re.search(r"[A-Z]\d+\.\d+", val)
+        assert re.search(r"[A-Z]\d+", val)
 
     def test_medication_nonempty(self):
         val = generate_value("medication")

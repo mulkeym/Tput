@@ -2,11 +2,14 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import time
 from dataclasses import dataclass, field
 from typing import AsyncIterator, Dict, List, Optional
 
 import httpx
+
+logger = logging.getLogger("tput")
 
 from app.prompt_builder import render_prompt, build_request_body
 
@@ -69,12 +72,10 @@ class LevelResult:
         elapsed: float,
         threshold: float,
         ttft_values: List[float] = None,
-        tps_values: List[float] = None,
+        aggregate_tps: float = 0.0,
     ) -> "LevelResult":
         if ttft_values is None:
             ttft_values = []
-        if tps_values is None:
-            tps_values = []
 
         if latencies:
             sorted_lat = sorted(latencies)
@@ -95,8 +96,6 @@ class LevelResult:
             p99_ttft = sorted_ttft[min(int(nt * 0.99), nt - 1)]
         else:
             avg_ttft = p50_ttft = p95_ttft = p99_ttft = 0.0
-
-        avg_tps = sum(tps_values) / len(tps_values) if tps_values else 0.0
 
         rps = total_requests / elapsed if elapsed > 0 else 0.0
         success_rate = ((total_requests - error_count) / total_requests * 100) if total_requests > 0 else 0.0
@@ -121,7 +120,7 @@ class LevelResult:
             p50_ttft=p50_ttft,
             p95_ttft=p95_ttft,
             p99_ttft=p99_ttft,
-            avg_tps=avg_tps,
+            avg_tps=aggregate_tps,
         )
 
     def to_dict(self) -> dict:
@@ -177,13 +176,18 @@ class BenchmarkEngine:
         return latency, status, decision, violations
 
     async def _send_streaming_request(self, client, url, headers, body):
-        """Send a streaming chat completion request. Returns (latency, ttft, tps, status)."""
+        """Send a streaming request. Returns (latency, ttft, token_count, status)."""
         start = time.monotonic()
         ttft = None
         total_tokens = 0
 
         async with client.stream("POST", url, json=body, headers=headers, timeout=60.0) as resp:
             status = resp.status_code
+            if status != 200:
+                await resp.aread()
+                total_time = time.monotonic() - start
+                return total_time, total_time, 0, status
+
             async for line in resp.aiter_lines():
                 if not line.startswith("data: "):
                     continue
@@ -191,12 +195,11 @@ class BenchmarkEngine:
                     break
                 if ttft is None:
                     ttft = time.monotonic() - start
-                # Count token chunks
                 try:
                     chunk = json.loads(line[6:])
                     choices = chunk.get("choices", [])
                     if choices and choices[0].get("delta", {}).get("content"):
-                        total_tokens += 1  # Each content chunk ~= 1 token
+                        total_tokens += 1
                 except (json.JSONDecodeError, KeyError, IndexError):
                     pass
 
@@ -204,11 +207,7 @@ class BenchmarkEngine:
         if ttft is None:
             ttft = total_time
 
-        # tokens per second (exclude TTFT from generation time)
-        gen_time = total_time - ttft
-        tps = total_tokens / gen_time if gen_time > 0 and total_tokens > 0 else 0.0
-
-        return total_time, ttft, tps, status
+        return total_time, ttft, total_tokens, status
 
     async def run(
         self,
@@ -216,29 +215,44 @@ class BenchmarkEngine:
         generators: List[str],
         image_base64: Optional[str],
     ) -> AsyncIterator[LevelResult]:
-        headers = {
-            "Authorization": f"Bearer {self.config.api_key}",
-            "Content-Type": "application/json",
-        }
+        headers = {"Content-Type": "application/json"}
+        if self.config.api_key:
+            headers["Authorization"] = f"Bearer {self.config.api_key}"
+
+        # Auto-append /chat/completions for LLM mode if not already present
+        endpoint = self.config.endpoint.rstrip("/")
+        if self.config.mode == LLM_MODE and not endpoint.endswith("/chat/completions"):
+            endpoint = endpoint + "/chat/completions"
+
         level = 0
         concurrency = self.config.start_concurrency
         mode = self.config.mode
 
-        async with httpx.AsyncClient() as client:
+        pool_limits = httpx.Limits(
+            max_connections=max(self.config.max_concurrency + 10, 100),
+            max_keepalive_connections=max(self.config.max_concurrency + 10, 100),
+        )
+        rounds = self.config.requests_per_level  # number of sample rounds
+
+        async with httpx.AsyncClient(limits=pool_limits) as client:
             while concurrency <= self.config.max_concurrency:
                 level += 1
-                sem = asyncio.Semaphore(concurrency)
                 latencies: List[float] = []
                 violations_agg: Dict[str, int] = {}
                 errors_by_type: Dict[str, int] = {}
                 error_count = 0
                 ttft_values: List[float] = []
-                tps_values: List[float] = []
+                total_tokens_all: List[int] = []
+                total_requests = 0
 
-                if mode == LLM_MODE:
-                    async def do_request():
-                        nonlocal error_count
-                        async with sem:
+                level_start = time.monotonic()
+
+                for _round in range(rounds):
+                    # Each round fires exactly `concurrency` simultaneous requests
+
+                    if mode == LLM_MODE:
+                        async def do_llm_request():
+                            nonlocal error_count
                             text = render_prompt(prompt_template, generators)
                             if image_base64:
                                 content = [
@@ -253,29 +267,30 @@ class BenchmarkEngine:
                                 "stream": True,
                             }
                             try:
-                                lat, ttft, tps, status = await self._send_streaming_request(
-                                    client, self.config.endpoint, headers, body
+                                lat, ttft, tokens, status = await self._send_streaming_request(
+                                    client, endpoint, headers, body
                                 )
                                 latencies.append(lat)
                                 ttft_values.append(ttft)
-                                tps_values.append(tps)
-                                if status not in (200, 400):
+                                total_tokens_all.append(tokens)
+                                if status != 200:
                                     error_count += 1
-                                    etype = f"http_{status}" if status >= 500 else "http_other"
+                                    etype = f"http_{status}"
                                     errors_by_type[etype] = errors_by_type.get(etype, 0) + 1
                             except Exception as exc:
                                 error_count += 1
                                 etype = classify_error(exc)
                                 errors_by_type[etype] = errors_by_type.get(etype, 0) + 1
-                else:
-                    async def do_request():
-                        nonlocal error_count
-                        async with sem:
+
+                        tasks = [asyncio.create_task(do_llm_request()) for _ in range(concurrency)]
+                    else:
+                        async def do_rampart_request():
+                            nonlocal error_count
                             text = render_prompt(prompt_template, generators)
                             body = build_request_body(text, image_base64)
                             try:
                                 lat, status, decision, viols = await self._send_single_request(
-                                    client, self.config.endpoint, headers, body
+                                    client, endpoint, headers, body
                                 )
                                 latencies.append(lat)
                                 for pid, cnt in viols.items():
@@ -289,10 +304,15 @@ class BenchmarkEngine:
                                 etype = classify_error(exc)
                                 errors_by_type[etype] = errors_by_type.get(etype, 0) + 1
 
-                level_start = time.monotonic()
-                tasks = [asyncio.create_task(do_request()) for _ in range(self.config.requests_per_level)]
-                await asyncio.gather(*tasks)
+                        tasks = [asyncio.create_task(do_rampart_request()) for _ in range(concurrency)]
+
+                    await asyncio.gather(*tasks)
+                    total_requests += concurrency
+
                 elapsed = time.monotonic() - level_start
+
+                # Aggregate TPS = total tokens generated / total wall time
+                agg_tps = sum(total_tokens_all) / elapsed if elapsed > 0 else 0.0
 
                 result = LevelResult.from_latencies(
                     level=level,
@@ -300,12 +320,12 @@ class BenchmarkEngine:
                     latencies=latencies,
                     violations_by_policy=violations_agg,
                     errors_by_type=errors_by_type,
-                    total_requests=self.config.requests_per_level,
+                    total_requests=total_requests,
                     error_count=error_count,
                     elapsed=elapsed,
                     threshold=self.config.latency_threshold,
                     ttft_values=ttft_values,
-                    tps_values=tps_values,
+                    aggregate_tps=agg_tps,
                 )
                 yield result
 

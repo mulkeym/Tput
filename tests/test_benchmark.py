@@ -116,26 +116,24 @@ class TestLevelResult:
 
     def test_ttft_tps_computed_from_values(self):
         ttft_values = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0]
-        tps_values = [10.0, 20.0, 30.0]
         result = LevelResult.from_latencies(
             level=1, concurrency=5, latencies=[0.5] * 10,
             violations_by_policy={}, errors_by_type={},
             total_requests=10, error_count=0, elapsed=2.0, threshold=2.0,
-            ttft_values=ttft_values, tps_values=tps_values,
+            ttft_values=ttft_values, aggregate_tps=150.0,
         )
         assert result.avg_ttft == pytest.approx(0.55, abs=0.01)
         assert result.p50_ttft == pytest.approx(0.55, abs=0.1)
         assert result.p99_ttft >= result.p95_ttft >= result.p50_ttft
-        assert result.avg_tps == pytest.approx(20.0, abs=0.01)
+        assert result.avg_tps == pytest.approx(150.0)
 
     def test_to_dict_includes_ttft_tps_fields(self):
         ttft_values = [0.1, 0.2, 0.3]
-        tps_values = [15.0, 25.0]
         result = LevelResult.from_latencies(
             level=1, concurrency=1, latencies=[0.5, 0.6, 0.7],
             violations_by_policy={}, errors_by_type={},
             total_requests=3, error_count=0, elapsed=1.0, threshold=2.0,
-            ttft_values=ttft_values, tps_values=tps_values,
+            ttft_values=ttft_values, aggregate_tps=45.0,
         )
         d = result.to_dict()
         assert "avg_ttft" in d
@@ -143,7 +141,7 @@ class TestLevelResult:
         assert "p95_ttft" in d
         assert "p99_ttft" in d
         assert "avg_tps" in d
-        assert d["avg_tps"] == pytest.approx(20.0, abs=0.01)
+        assert d["avg_tps"] == pytest.approx(45.0)
 
 
 class TestBenchmarkEngine:
