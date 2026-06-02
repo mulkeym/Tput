@@ -473,9 +473,9 @@ startBtnEl.addEventListener('click', () => {
 
   const generators = detectGenerators();
   const prompt = {
-    template:   promptTextEl.value,
+    text:          promptTextEl.value,
     generators,
-    image:      imageBase64 || null,
+    image_base64:  imageBase64 || null,
   };
 
   resetDashboard();
@@ -500,28 +500,26 @@ startBtnEl.addEventListener('click', () => {
     try { msg = JSON.parse(e.data); } catch { return; }
 
     if (msg.type === 'level_result') {
-      const level = msg.data;
-      allLevels.push(level);
+      allLevels.push(msg);
 
-      if (!level.threshold_exceeded) {
-        maxSafeConcurrency = level.concurrency;
+      if (!msg.threshold_exceeded) {
+        maxSafeConcurrency = msg.concurrency;
       }
 
-      addChartPoint(level);
-      updateStats(level);
-      addPercRow(level);
-      updateViolations(level);
-      addErrors(level);
+      addChartPoint(msg);
+      updateStats(msg);
+      addPercRow(msg);
+      updateViolations(msg);
+      addErrors(msg);
 
       setStatus(
         'running',
         'Running',
-        `Level ${level.level} — concurrency ${level.concurrency} complete`,
+        `Level ${msg.level} — concurrency ${msg.concurrency} complete`,
       );
     } else if (msg.type === 'complete') {
-      const result = msg.data;
-      if (result && result.max_safe_concurrency !== undefined) {
-        maxSafeConcurrency = result.max_safe_concurrency;
+      if (msg.max_safe_concurrency !== undefined) {
+        maxSafeConcurrency = msg.max_safe_concurrency;
         statMaxConcEl.textContent = maxSafeConcurrency ?? '—';
       }
       onComplete('Benchmark complete');
@@ -585,12 +583,18 @@ exportBtnEl.addEventListener('click', async () => {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        levels: allLevels,
+        endpoint: endpointEl.value.trim(),
         config: {
-          endpoint:           endpointEl.value.trim(),
+          step_size:          parseInt(stepSizeEl.value, 10) || 5,
+          requests_per_level: parseInt(reqPerLevelEl.value, 10) || 50,
           latency_threshold:  parseFloat(thresholdEl.value) || 2.0,
         },
+        levels: allLevels,
         max_safe_concurrency: maxSafeConcurrency,
+        total_requests: allLevels.reduce((s, l) => s + l.total_requests, 0),
+        total_errors: allLevels.reduce((s, l) => s + l.error_count, 0),
+        prompt_template: promptTextEl.value,
+        generators: detectGenerators(),
       }),
     });
 

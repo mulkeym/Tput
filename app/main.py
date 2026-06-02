@@ -1,6 +1,9 @@
 from __future__ import annotations
 import json
+import logging
 from pathlib import Path
+
+logger = logging.getLogger("tput")
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse, Response
@@ -126,6 +129,7 @@ async def benchmark_ws(websocket: WebSocket):
     except WebSocketDisconnect:
         pass
     except Exception as e:
+        logger.exception("Benchmark WebSocket error")
         try:
             await websocket.send_json({"type": "error", "message": str(e)})
         except Exception:
