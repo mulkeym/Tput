@@ -52,7 +52,13 @@
       </div>
       <div class="input-group" id="model-group" style="display:none;">
         <label for="model-name">Model</label>
-        <input type="text" id="model-name" value="gpt-4" placeholder="gpt-4, llama-3, etc.">
+        <div style="display:flex;gap:6px;align-items:center;">
+          <select id="model-name" style="flex:1;">
+            <option value="">-- enter endpoint to load --</option>
+          </select>
+          <button class="btn-refresh" id="refresh-models" title="Refresh models">&#8635;</button>
+        </div>
+        <div id="model-status" style="font-size:10px;color:var(--text-muted);margin-top:3px;"></div>
       </div>
     </div>
 

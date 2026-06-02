@@ -5,6 +5,7 @@ from pathlib import Path
 
 logger = logging.getLogger("tput")
 
+import httpx
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
@@ -32,6 +33,42 @@ class GenerateRequest(BaseModel):
 @app.post("/api/generate-data")
 async def generate_data(req: GenerateRequest):
     return generate_all(req.generators)
+
+
+class ModelsRequest(BaseModel):
+    endpoint: str
+    api_key: str = ""
+
+
+@app.post("/api/models")
+async def list_models(req: ModelsRequest):
+    """Proxy GET /v1/models from an OpenAI-compatible endpoint."""
+    # Derive base URL: strip trailing path components like /v1/chat/completions
+    base = req.endpoint.rstrip("/")
+    for suffix in ["/chat/completions", "/completions", "/rampart/evaluate"]:
+        if base.endswith(suffix):
+            base = base[: -len(suffix)]
+            break
+    models_url = base.rstrip("/") + "/models"
+
+    headers = {"Content-Type": "application/json"}
+    if req.api_key:
+        headers["Authorization"] = f"Bearer {req.api_key}"
+
+    try:
+        async with httpx.AsyncClient() as client:
+            resp = await client.get(models_url, headers=headers, timeout=10.0)
+            if resp.status_code != 200:
+                return {"models": [], "error": f"HTTP {resp.status_code}"}
+            data = resp.json()
+            # OpenAI format: {"data": [{"id": "model-name", ...}, ...]}
+            models = []
+            for m in data.get("data", []):
+                models.append(m.get("id", "unknown"))
+            models.sort()
+            return {"models": models}
+    except Exception as e:
+        return {"models": [], "error": str(e)}
 
 
 class ReportRequest(BaseModel):

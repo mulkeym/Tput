@@ -43,8 +43,10 @@ const percTbodyEl   = $('perc-tbody');
 const violationsEl  = $('violations-container');
 const errorLogEl    = $('error-log');
 const exportBtnEl   = $('export-btn');
-const modelGroupEl    = $('model-group');
-const modelNameEl     = $('model-name');
+const modelGroupEl      = $('model-group');
+const modelNameEl       = $('model-name');
+const refreshModelsBtn  = $('refresh-models');
+const modelStatusEl     = $('model-status');
 const violationsPanelEl = $('violations-panel');
 const ttftPanelEl     = $('ttft-panel');
 const ttftP50El       = $('ttft-p50');
@@ -61,6 +63,65 @@ const KNOWN_GENERATORS = new Set([
   'insurance_id', 'admission_date', 'lab_result',
 ]);
 
+// ── Model Fetching ──────────────────────────────────────────────────────────
+let fetchModelsTimer = null;
+
+async function fetchModels() {
+  const endpoint = endpointEl.value.trim();
+  const apiKey = apikeyEl.value.trim();
+  if (!endpoint) return;
+
+  modelStatusEl.textContent = 'Loading models...';
+  refreshModelsBtn.classList.add('spinning');
+
+  try {
+    const resp = await fetch('/api/models', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ endpoint, api_key: apiKey }),
+    });
+    const data = await resp.json();
+
+    const prev = modelNameEl.value;
+    modelNameEl.innerHTML = '';
+
+    if (data.models && data.models.length > 0) {
+      data.models.forEach(m => {
+        const opt = document.createElement('option');
+        opt.value = m;
+        opt.textContent = m;
+        modelNameEl.appendChild(opt);
+      });
+      // Restore previous selection if still available
+      if (prev && data.models.includes(prev)) {
+        modelNameEl.value = prev;
+      }
+      modelStatusEl.textContent = `${data.models.length} model(s) found`;
+    } else {
+      const opt = document.createElement('option');
+      opt.value = '';
+      opt.textContent = '-- no models found --';
+      modelNameEl.appendChild(opt);
+      modelStatusEl.textContent = data.error || 'No models available';
+    }
+  } catch (e) {
+    modelStatusEl.textContent = 'Failed to fetch models';
+  } finally {
+    refreshModelsBtn.classList.remove('spinning');
+  }
+}
+
+function debouncedFetchModels() {
+  if (fetchModelsTimer) clearTimeout(fetchModelsTimer);
+  fetchModelsTimer = setTimeout(() => {
+    if (currentMode === 'llm') fetchModels();
+  }, 800);
+}
+
+endpointEl.addEventListener('input', debouncedFetchModels);
+apikeyEl.addEventListener('input', debouncedFetchModels);
+refreshModelsBtn.addEventListener('click', fetchModels);
+
 // ── Mode Toggle ──────────────────────────────────────────────────────────────
 document.querySelectorAll('.mode-btn').forEach(btn => {
   btn.addEventListener('click', () => {
@@ -75,6 +136,8 @@ document.querySelectorAll('.mode-btn').forEach(btn => {
     if (currentMode === 'llm') {
       violationsPanelEl.style.display = 'none';
       ttftPanelEl.style.display = '';
+      // Auto-fetch models when switching to LLM mode
+      if (endpointEl.value.trim()) fetchModels();
     } else {
       violationsPanelEl.style.display = '';
       ttftPanelEl.style.display = 'none';
