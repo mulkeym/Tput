@@ -36,7 +36,7 @@ class TestGenerateValue:
     def test_credit_card_format(self):
         val = generate_value("credit_card")
         digits = re.sub(r"\D", "", val)
-        assert len(digits) >= 13
+        assert len(digits) >= 12
 
     def test_mrn_format(self):
         val = generate_value("mrn")

@@ -143,6 +143,10 @@ document.querySelectorAll('.mode-btn').forEach(btn => {
       ttftPanelEl.style.display = 'none';
     }
 
+    // Show/hide TPS legend
+    const legendTps = $('legend-tps');
+    if (legendTps) legendTps.style.display = currentMode === 'llm' ? '' : 'none';
+
     // Update stat card labels
     updateStatCardLabels();
     updatePercTableHeader();
@@ -240,6 +244,22 @@ function initChart() {
           order: 0,
           yAxisID: 'y',
         },
+        {
+          type: 'line',
+          label: 'TPS',
+          data: [],
+          borderColor: '#c084fc',
+          backgroundColor: 'rgba(192, 132, 252, 0.1)',
+          borderWidth: 2,
+          pointRadius: 4,
+          pointHoverRadius: 6,
+          pointBackgroundColor: '#c084fc',
+          tension: 0.35,
+          fill: true,
+          order: 0,
+          yAxisID: 'y2',
+          hidden: currentMode !== 'llm',
+        },
       ],
     },
     options: {
@@ -259,12 +279,26 @@ function initChart() {
           },
         },
         y: {
+          position: 'left',
           grid: { color: '#1e293b' },
           ticks: { color: '#64748b', font: { size: 11 } },
           title: {
             display: true,
             text: 'Latency (s)',
             color: '#64748b',
+            font: { size: 11 },
+          },
+          beginAtZero: true,
+        },
+        y2: {
+          position: 'right',
+          display: currentMode === 'llm',
+          grid: { drawOnChartArea: false },
+          ticks: { color: '#c084fc', font: { size: 11 } },
+          title: {
+            display: true,
+            text: 'Tokens/s',
+            color: '#c084fc',
             font: { size: 11 },
           },
           beginAtZero: true,
@@ -281,6 +315,9 @@ function initChart() {
           callbacks: {
             label(ctx) {
               const val = ctx.parsed.y;
+              if (ctx.dataset.label === 'TPS') {
+                return ` ${ctx.dataset.label}: ${val !== null ? val.toFixed(1) + ' t/s' : '—'}`;
+              }
               return ` ${ctx.dataset.label}: ${val !== null ? val.toFixed(3) + 's' : '—'}`;
             },
           },
@@ -312,6 +349,11 @@ function addChartPoint(level) {
   ds[0].backgroundColor.push(barColor);
   ds[1].data.push(parseFloat(level.p95.toFixed(3)));
   ds[2].data.push(parseFloat(level.p99.toFixed(3)));
+  // TPS on secondary axis (dataset index 3)
+  ds[3].data.push(currentMode === 'llm' && level.avg_tps != null ? parseFloat(level.avg_tps.toFixed(1)) : null);
+  ds[3].hidden = currentMode !== 'llm';
+  // Show/hide the secondary axis
+  latencyChart.options.scales.y2.display = currentMode === 'llm';
   latencyChart.update('none');
 }
 
