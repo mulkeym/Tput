@@ -2,7 +2,7 @@ import asyncio
 import json
 import pytest
 from unittest.mock import AsyncMock
-from app.benchmark import BenchmarkConfig, BenchmarkEngine, LevelResult, classify_error
+from app.benchmark import BenchmarkConfig, BenchmarkEngine, LevelResult, classify_error, RAMPART_MODE, LLM_MODE
 
 
 class TestBenchmarkConfig:
@@ -26,6 +26,16 @@ class TestBenchmarkConfig:
         )
         assert cfg.step_size == 10
         assert cfg.latency_threshold == 1.0
+
+    def test_mode_and_model_defaults(self):
+        cfg = BenchmarkConfig(endpoint="http://localhost:8080", api_key="test")
+        assert cfg.mode == "rampart"
+        assert cfg.model == "gpt-4"
+
+    def test_mode_llm(self):
+        cfg = BenchmarkConfig(endpoint="http://localhost:8080", api_key="test", mode="llm", model="gpt-4o")
+        assert cfg.mode == LLM_MODE
+        assert cfg.model == "gpt-4o"
 
 
 class TestClassifyError:
@@ -91,6 +101,49 @@ class TestLevelResult:
             total_requests=2, error_count=0, elapsed=1.0, threshold=2.0,
         )
         json.dumps(result.to_dict())
+
+    def test_ttft_tps_fields_default_zero(self):
+        result = LevelResult.from_latencies(
+            level=1, concurrency=1, latencies=[0.5],
+            violations_by_policy={}, errors_by_type={},
+            total_requests=1, error_count=0, elapsed=1.0, threshold=2.0,
+        )
+        assert result.avg_ttft == 0.0
+        assert result.p50_ttft == 0.0
+        assert result.p95_ttft == 0.0
+        assert result.p99_ttft == 0.0
+        assert result.avg_tps == 0.0
+
+    def test_ttft_tps_computed_from_values(self):
+        ttft_values = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0]
+        tps_values = [10.0, 20.0, 30.0]
+        result = LevelResult.from_latencies(
+            level=1, concurrency=5, latencies=[0.5] * 10,
+            violations_by_policy={}, errors_by_type={},
+            total_requests=10, error_count=0, elapsed=2.0, threshold=2.0,
+            ttft_values=ttft_values, tps_values=tps_values,
+        )
+        assert result.avg_ttft == pytest.approx(0.55, abs=0.01)
+        assert result.p50_ttft == pytest.approx(0.55, abs=0.1)
+        assert result.p99_ttft >= result.p95_ttft >= result.p50_ttft
+        assert result.avg_tps == pytest.approx(20.0, abs=0.01)
+
+    def test_to_dict_includes_ttft_tps_fields(self):
+        ttft_values = [0.1, 0.2, 0.3]
+        tps_values = [15.0, 25.0]
+        result = LevelResult.from_latencies(
+            level=1, concurrency=1, latencies=[0.5, 0.6, 0.7],
+            violations_by_policy={}, errors_by_type={},
+            total_requests=3, error_count=0, elapsed=1.0, threshold=2.0,
+            ttft_values=ttft_values, tps_values=tps_values,
+        )
+        d = result.to_dict()
+        assert "avg_ttft" in d
+        assert "p50_ttft" in d
+        assert "p95_ttft" in d
+        assert "p99_ttft" in d
+        assert "avg_tps" in d
+        assert d["avg_tps"] == pytest.approx(20.0, abs=0.01)
 
 
 class TestBenchmarkEngine:

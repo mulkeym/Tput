@@ -66,6 +66,7 @@ class TestReportEndpoint:
             "total_errors": 0,
             "prompt_template": "test",
             "generators": [],
+            "mode": "rampart",
         })
         assert resp.status_code == 200
         assert resp.headers["content-type"] == "application/pdf"

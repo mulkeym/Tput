@@ -168,6 +168,28 @@ REPORT_TEMPLATE = Template("""
 </div>
 
 <h2>Latency Percentiles</h2>
+{% if mode == "llm" %}
+<table>
+  <thead>
+    <tr><th>Level</th><th>Concurrency</th><th>P50</th><th>P95</th><th>P99</th><th>Avg</th><th>TTFT p50</th><th>TPS</th><th>Errors</th></tr>
+  </thead>
+  <tbody>
+    {% for level in levels %}
+    <tr>
+      <td>{{ level.level }}</td>
+      <td>{{ level.concurrency }}</td>
+      <td>{{ "%.3f" | format(level.p50) }}s</td>
+      <td>{{ "%.3f" | format(level.p95) }}s</td>
+      <td>{{ "%.3f" | format(level.p99) }}s</td>
+      <td style="color: {% if level.avg_latency > config.latency_threshold %}#f87171{% elif level.avg_latency > config.latency_threshold * 0.5 %}#fbbf24{% else %}#4ade80{% endif %}">{{ "%.3f" | format(level.avg_latency) }}s</td>
+      <td>{{ "%.3f" | format(level.p50_ttft) }}s</td>
+      <td>{{ "%.1f" | format(level.avg_tps) }}</td>
+      <td>{{ level.error_count }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% else %}
 <table>
   <thead>
     <tr><th>Level</th><th>Concurrency</th><th>P50</th><th>P95</th><th>P99</th><th>Avg</th><th>RPS</th><th>Errors</th></tr>
@@ -187,7 +209,29 @@ REPORT_TEMPLATE = Template("""
     {% endfor %}
   </tbody>
 </table>
+{% endif %}
 
+{% if mode == "llm" %}
+<h2>Token Performance</h2>
+<table>
+  <thead>
+    <tr><th>Level</th><th>Concurrency</th><th>Avg TTFT</th><th>P50 TTFT</th><th>P95 TTFT</th><th>P99 TTFT</th><th>Avg TPS</th></tr>
+  </thead>
+  <tbody>
+    {% for level in levels %}
+    <tr>
+      <td>{{ level.level }}</td>
+      <td>{{ level.concurrency }}</td>
+      <td>{{ "%.3f" | format(level.avg_ttft) }}s</td>
+      <td>{{ "%.3f" | format(level.p50_ttft) }}s</td>
+      <td>{{ "%.3f" | format(level.p95_ttft) }}s</td>
+      <td>{{ "%.3f" | format(level.p99_ttft) }}s</td>
+      <td>{{ "%.1f" | format(level.avg_tps) }} tok/s</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% else %}
 {% if all_violations %}
 <h2>Policy Violations</h2>
 {% for policy_id, count in all_violations.items() %}
@@ -199,6 +243,7 @@ REPORT_TEMPLATE = Template("""
   <div class="violation-bar-fill" style="width: {{ (count / total_requests * 100) | round }}%; background: {% if count > 0 %}#f87171{% else %}#4ade80{% endif %};"></div>
 </div>
 {% endfor %}
+{% endif %}
 {% endif %}
 
 {% if all_errors %}
@@ -227,7 +272,8 @@ Generators: {{ generators | join(", ") if generators else "None" }}</div>
 
 
 def render_report_html(endpoint, config, levels, max_safe_concurrency,
-                       total_requests, total_errors, prompt_template, generators):
+                       total_requests, total_errors, prompt_template, generators,
+                       mode="rampart"):
     all_violations = {}
     all_errors = {}
     for lvl in levels:
@@ -248,16 +294,18 @@ def render_report_html(endpoint, config, levels, max_safe_concurrency,
         total_requests=total_requests, total_errors=total_errors,
         max_latency=max_latency, all_violations=all_violations,
         all_errors=all_errors, prompt_template=prompt_template,
-        generators=generators,
+        generators=generators, mode=mode,
     )
 
 
 def generate_pdf(endpoint, config, levels, max_safe_concurrency,
-                 total_requests, total_errors, prompt_template, generators):
+                 total_requests, total_errors, prompt_template, generators,
+                 mode="rampart"):
     html_str = render_report_html(
         endpoint=endpoint, config=config, levels=levels,
         max_safe_concurrency=max_safe_concurrency,
         total_requests=total_requests, total_errors=total_errors,
         prompt_template=prompt_template, generators=generators,
+        mode=mode,
     )
     return HTML(string=html_str).write_pdf()

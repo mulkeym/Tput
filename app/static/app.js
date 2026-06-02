@@ -12,6 +12,7 @@ let imageBase64 = null;
 let allLevels = [];
 let maxSafeConcurrency = null;
 let latencyChart = null;
+let currentMode = 'rampart';
 
 // ── DOM References ──────────────────────────────────────────────────────────
 const $ = id => document.getElementById(id);
@@ -42,6 +43,15 @@ const percTbodyEl   = $('perc-tbody');
 const violationsEl  = $('violations-container');
 const errorLogEl    = $('error-log');
 const exportBtnEl   = $('export-btn');
+const modelGroupEl    = $('model-group');
+const modelNameEl     = $('model-name');
+const violationsPanelEl = $('violations-panel');
+const ttftPanelEl     = $('ttft-panel');
+const ttftP50El       = $('ttft-p50');
+const ttftP95El       = $('ttft-p95');
+const ttftP99El       = $('ttft-p99');
+const avgTpsEl        = $('avg-tps');
+const errorLogLlmEl   = $('error-log-llm');
 
 // ── Known Generator Names ────────────────────────────────────────────────────
 const KNOWN_GENERATORS = new Set([
@@ -50,6 +60,51 @@ const KNOWN_GENERATORS = new Set([
   'mrn', 'diagnosis', 'medication', 'provider',
   'insurance_id', 'admission_date', 'lab_result',
 ]);
+
+// ── Mode Toggle ──────────────────────────────────────────────────────────────
+document.querySelectorAll('.mode-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.mode-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    currentMode = btn.dataset.mode;
+
+    // Show/hide model field
+    modelGroupEl.style.display = currentMode === 'llm' ? '' : 'none';
+
+    // Swap bottom panels
+    if (currentMode === 'llm') {
+      violationsPanelEl.style.display = 'none';
+      ttftPanelEl.style.display = '';
+    } else {
+      violationsPanelEl.style.display = '';
+      ttftPanelEl.style.display = 'none';
+    }
+
+    // Update stat card labels
+    updateStatCardLabels();
+    updatePercTableHeader();
+  });
+});
+
+function updateStatCardLabels() {
+  const cards = document.querySelectorAll('.stat-card');
+  if (currentMode === 'llm') {
+    cards[1].querySelector('.stat-label').textContent = 'TTFT (p50)';
+    cards[3].querySelector('.stat-label').textContent = 'Avg TPS';
+  } else {
+    cards[1].querySelector('.stat-label').textContent = 'Avg Latency';
+    cards[3].querySelector('.stat-label').textContent = 'Throughput (RPS)';
+  }
+}
+
+function updatePercTableHeader() {
+  const thead = document.querySelector('.perc-table thead tr');
+  if (currentMode === 'llm') {
+    thead.innerHTML = '<th>Level</th><th>p50</th><th>p95</th><th>p99</th><th>Avg</th><th>TTFT p50</th><th>TPS</th>';
+  } else {
+    thead.innerHTML = '<th>Conc.</th><th>p50</th><th>p95</th><th>p99</th><th>Avg</th>';
+  }
+}
 
 // ── Chart Init / Reset ───────────────────────────────────────────────────────
 function initChart() {
@@ -198,16 +253,28 @@ function addChartPoint(level) {
 }
 
 // ── Stats Update ─────────────────────────────────────────────────────────────
-function updateStats(level) {
+function updateStats(msg) {
   if (maxSafeConcurrency !== null) {
     statMaxConcEl.textContent = maxSafeConcurrency;
   } else {
-    statMaxConcEl.textContent = `${level.concurrency}`;
+    statMaxConcEl.textContent = `${msg.concurrency}`;
   }
-  statAvgLatEl.textContent  = `${level.avg_latency.toFixed(2)}s`;
-  statSuccessEl.textContent = `${level.success_rate.toFixed(1)}%`;
-  statRpsEl.textContent     = `${level.rps.toFixed(1)}`;
-  statErrorsEl.textContent  = `${level.error_rate.toFixed(1)}%`;
+  statSuccessEl.textContent = `${msg.success_rate.toFixed(1)}%`;
+  statErrorsEl.textContent  = `${msg.error_rate.toFixed(1)}%`;
+
+  if (currentMode === 'rampart') {
+    statAvgLatEl.textContent = `${msg.avg_latency.toFixed(2)}s`;
+    statRpsEl.textContent    = `${msg.rps.toFixed(1)}`;
+  } else {
+    // LLM mode
+    statAvgLatEl.textContent = msg.p50_ttft !== undefined ? msg.p50_ttft.toFixed(3) + 's' : '—';
+    statRpsEl.textContent    = msg.avg_tps  !== undefined ? msg.avg_tps.toFixed(1)  + ' t/s' : '—';
+    // Update TTFT panel
+    if (ttftP50El) ttftP50El.textContent = msg.p50_ttft !== undefined ? msg.p50_ttft.toFixed(3) + 's' : '—';
+    if (ttftP95El) ttftP95El.textContent = msg.p95_ttft !== undefined ? msg.p95_ttft.toFixed(3) + 's' : '—';
+    if (ttftP99El) ttftP99El.textContent = msg.p99_ttft !== undefined ? msg.p99_ttft.toFixed(3) + 's' : '—';
+    if (avgTpsEl)  avgTpsEl.textContent  = msg.avg_tps  !== undefined ? msg.avg_tps.toFixed(1)  + ' t/s' : '—';
+  }
 }
 
 // ── Percentile Table ─────────────────────────────────────────────────────────
@@ -229,6 +296,12 @@ function addPercRow(level) {
     <td>${level.p99.toFixed(3)}</td>
     <td>${level.avg_latency.toFixed(3)}</td>
   `;
+  if (currentMode === 'llm') {
+    tr.innerHTML += `
+      <td style="color:var(--accent)">${level.p50_ttft !== undefined ? level.p50_ttft.toFixed(3) + 's' : '—'}</td>
+      <td style="color:var(--purple)">${level.avg_tps !== undefined ? level.avg_tps.toFixed(1) : '—'}</td>
+    `;
+  }
   percTbodyEl.appendChild(tr);
 
   // Scroll to bottom
@@ -277,14 +350,21 @@ function updateViolations(level) {
 function addErrors(level) {
   if (!level.errors_by_type) return;
 
+  const logEl = currentMode === 'llm' ? errorLogLlmEl : errorLogEl;
+
   let anyError = false;
   for (const [errType, count] of Object.entries(level.errors_by_type)) {
     if (count <= 0) continue;
     anyError = true;
 
     // Remove empty placeholder if present
-    const empty = errorLogEl.querySelector('.empty-state');
+    const empty = logEl.querySelector('.empty-state');
     if (empty) empty.remove();
+    // Also remove the "No errors" text node placeholder used in llm panel
+    if (logEl === errorLogLlmEl) {
+      const noErrDiv = logEl.querySelector('div');
+      if (noErrDiv && noErrDiv.textContent.trim() === 'No errors') noErrDiv.remove();
+    }
 
     const entry = document.createElement('div');
     entry.className = 'error-entry';
@@ -292,11 +372,11 @@ function addErrors(level) {
       <span class="error-conc">c=${level.concurrency}</span>
       <span class="error-msg">${escapeHtml(errType)}: ${count}</span>
     `;
-    errorLogEl.appendChild(entry);
+    logEl.appendChild(entry);
   }
 
   if (anyError) {
-    errorLogEl.scrollTop = errorLogEl.scrollHeight;
+    logEl.scrollTop = logEl.scrollHeight;
   }
 }
 
@@ -332,6 +412,13 @@ function resetDashboard() {
     </div>
   `;
 
+  if (ttftP50El) ttftP50El.textContent = '—';
+  if (ttftP95El) ttftP95El.textContent = '—';
+  if (ttftP99El) ttftP99El.textContent = '—';
+  if (avgTpsEl)  avgTpsEl.textContent  = '—';
+  if (errorLogLlmEl) errorLogLlmEl.innerHTML = '<div style="color:var(--text-muted);font-size:11px;">No errors</div>';
+
+  updatePercTableHeader();
   exportBtnEl.disabled = true;
   initChart();
 }
@@ -464,6 +551,8 @@ startBtnEl.addEventListener('click', () => {
   const config = {
     endpoint,
     api_key:              apikey,
+    mode:                 currentMode,
+    model:                modelNameEl.value.trim() || 'gpt-4',
     start_concurrency:    parseInt(startConcEl.value, 10)   || 1,
     step_size:            parseInt(stepSizeEl.value, 10)    || 5,
     max_concurrency:      parseInt(maxConcEl.value, 10)     || 200,
@@ -584,6 +673,7 @@ exportBtnEl.addEventListener('click', async () => {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         endpoint: endpointEl.value.trim(),
+        mode: currentMode,
         config: {
           step_size:          parseInt(stepSizeEl.value, 10) || 5,
           requests_per_level: parseInt(reqPerLevelEl.value, 10) || 50,

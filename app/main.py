@@ -43,6 +43,7 @@ class ReportRequest(BaseModel):
     total_errors: int
     prompt_template: str
     generators: list[str]
+    mode: str = "rampart"
 
 
 @app.post("/api/report")
@@ -64,6 +65,11 @@ async def export_report(req: ReportRequest):
             total_requests=lvl["total_requests"],
             violations_by_policy=lvl.get("violations_by_policy", {}),
             threshold_exceeded=lvl["threshold_exceeded"],
+            avg_ttft=lvl.get("avg_ttft", 0.0),
+            p50_ttft=lvl.get("p50_ttft", 0.0),
+            p95_ttft=lvl.get("p95_ttft", 0.0),
+            p99_ttft=lvl.get("p99_ttft", 0.0),
+            avg_tps=lvl.get("avg_tps", 0.0),
         ))
 
     pdf_bytes = generate_pdf(
@@ -75,6 +81,7 @@ async def export_report(req: ReportRequest):
         total_errors=req.total_errors,
         prompt_template=req.prompt_template,
         generators=req.generators,
+        mode=req.mode,
     )
     return Response(content=pdf_bytes, media_type="application/pdf")
 
@@ -99,6 +106,8 @@ async def benchmark_ws(websocket: WebSocket):
             max_concurrency=cfg_data.get("max_concurrency", 200),
             requests_per_level=cfg_data.get("requests_per_level", 50),
             latency_threshold=cfg_data.get("latency_threshold", 2.0),
+            mode=cfg_data.get("mode", "rampart"),
+            model=cfg_data.get("model", "gpt-4"),
         )
 
         prompt_data = msg["prompt"]
