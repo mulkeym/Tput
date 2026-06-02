@@ -19,6 +19,7 @@ const $ = id => document.getElementById(id);
 
 const endpointEl    = $('endpoint');
 const apikeyEl      = $('apikey');
+const userFieldEl   = $('user-field');
 const startConcEl   = $('start-conc');
 const stepSizeEl    = $('step-size');
 const maxConcEl     = $('max-conc');
@@ -656,6 +657,7 @@ startBtnEl.addEventListener('click', () => {
   const config = {
     endpoint,
     api_key:              apikey,
+    user:                 userFieldEl.value.trim(),
     mode:                 currentMode,
     model:                modelNameEl.value.trim() || 'gpt-4',
     start_concurrency:    parseInt(startConcEl.value, 10)   || 1,

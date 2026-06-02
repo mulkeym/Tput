@@ -145,6 +145,7 @@ async def benchmark_ws(websocket: WebSocket):
             latency_threshold=cfg_data.get("latency_threshold", 2.0),
             mode=cfg_data.get("mode", "rampart"),
             model=cfg_data.get("model", "gpt-4"),
+            user=cfg_data.get("user", ""),
         )
 
         prompt_data = msg["prompt"]

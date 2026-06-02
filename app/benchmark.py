@@ -28,6 +28,7 @@ class BenchmarkConfig:
     latency_threshold: float = 2.0
     mode: str = "rampart"
     model: str = "gpt-4"
+    user: str = ""
 
 
 def classify_error(exc: Exception) -> str:
@@ -266,6 +267,8 @@ class BenchmarkEngine:
                                 "messages": [{"role": "user", "content": content}],
                                 "stream": True,
                             }
+                            if self.config.user:
+                                body["user"] = self.config.user
                             try:
                                 lat, ttft, tokens, status = await self._send_streaming_request(
                                     client, endpoint, headers, body
@@ -287,7 +290,7 @@ class BenchmarkEngine:
                         async def do_rampart_request():
                             nonlocal error_count
                             text = render_prompt(prompt_template, generators)
-                            body = build_request_body(text, image_base64)
+                            body = build_request_body(text, image_base64, user=self.config.user or None)
                             try:
                                 lat, status, decision, viols = await self._send_single_request(
                                     client, endpoint, headers, body

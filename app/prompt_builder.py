@@ -22,6 +22,7 @@ def render_prompt(template: str, generators: list[str]) -> str:
 def build_request_body(
     text: str,
     image_base64: str | None = None,
+    user: str | None = None,
 ) -> dict:
     """Build a RAMPART-compatible evaluate request body."""
     if image_base64:
@@ -32,11 +33,13 @@ def build_request_body(
     else:
         content = text
 
-    return {
-        "request": {
-            "model": "gpt-4",
-            "messages": [
-                {"role": "user", "content": content}
-            ],
-        }
+    request = {
+        "model": "gpt-4",
+        "messages": [
+            {"role": "user", "content": content}
+        ],
     }
+    if user:
+        request["user"] = user
+
+    return {"request": request}
