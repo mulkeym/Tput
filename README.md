@@ -41,6 +41,23 @@ uvicorn app.main:app --host 0.0.0.0 --port 9090
 
 Open [http://localhost:9090](http://localhost:9090).
 
+## Environment Variables
+
+| Variable | Description |
+|----------|-------------|
+| `TPUT_ENDPOINT` | Pre-fill the Endpoint URL field (e.g., `http://localhost:8080/v1/rampart/evaluate`) |
+| `TPUT_API_KEY` | Pre-fill the API Key field |
+
+```bash
+# Local
+TPUT_ENDPOINT=http://localhost:8080/v1/rampart/evaluate TPUT_API_KEY=rmp_live_xxx uvicorn app.main:app --host 0.0.0.0 --port 9090
+
+# Docker
+TPUT_ENDPOINT=http://localhost:8080/v1/rampart/evaluate TPUT_API_KEY=rmp_live_xxx docker compose up --build
+```
+
+These are optional — you can always enter or override values in the UI.
+
 ## Usage
 
 ### 1. Choose a mode

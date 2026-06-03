@@ -1,6 +1,7 @@
 from __future__ import annotations
 import json
 import logging
+import os
 from pathlib import Path
 
 logger = logging.getLogger("tput")
@@ -24,6 +25,15 @@ app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 @app.get("/")
 async def index():
     return FileResponse(STATIC_DIR / "index.html")
+
+
+@app.get("/api/defaults")
+async def get_defaults():
+    """Return env-var defaults for the UI fields."""
+    return {
+        "endpoint": os.environ.get("TPUT_ENDPOINT", ""),
+        "api_key": os.environ.get("TPUT_API_KEY", ""),
+    }
 
 
 class GenerateRequest(BaseModel):

@@ -123,6 +123,17 @@ endpointEl.addEventListener('input', debouncedFetchModels);
 apikeyEl.addEventListener('input', debouncedFetchModels);
 refreshModelsBtn.addEventListener('click', fetchModels);
 
+// ── Load env-var defaults ────────────────────────────────────────────────────
+(async () => {
+  try {
+    const resp = await fetch('/api/defaults');
+    if (!resp.ok) return;
+    const defaults = await resp.json();
+    if (defaults.endpoint && !endpointEl.value) endpointEl.value = defaults.endpoint;
+    if (defaults.api_key && !apikeyEl.value)    apikeyEl.value = defaults.api_key;
+  } catch { /* ignore */ }
+})();
+
 // ── Mode Toggle ──────────────────────────────────────────────────────────────
 document.querySelectorAll('.mode-btn').forEach(btn => {
   btn.addEventListener('click', () => {

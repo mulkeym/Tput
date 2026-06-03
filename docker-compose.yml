@@ -3,4 +3,7 @@ services:
     build: .
     ports:
       - "9090:9090"
+    environment:
+      - TPUT_ENDPOINT=${TPUT_ENDPOINT:-}
+      - TPUT_API_KEY=${TPUT_API_KEY:-}
     restart: unless-stopped
