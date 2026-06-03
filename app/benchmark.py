@@ -253,15 +253,15 @@ class BenchmarkEngine:
                 ttft_values: List[float] = []
                 total_tokens_all: List[int] = []
                 total_requests = 0
-
-                level_start = time.monotonic()
+                elapsed = 0.0
 
                 for _round in range(rounds):
-                    # Each round fires exactly `concurrency` simultaneous requests
-
+                    # Pre-generate all prompts and request bodies so that
+                    # CPU-bound Faker work doesn't serialize the coroutines
+                    # and stagger the HTTP requests.
+                    bodies = []
                     if mode == LLM_MODE:
-                        async def do_llm_request():
-                            nonlocal error_count
+                        for _ in range(concurrency):
                             text = render_prompt(prompt_template, generators)
                             if image_base64:
                                 content = [
@@ -277,6 +277,16 @@ class BenchmarkEngine:
                             }
                             if self.config.user:
                                 body["user"] = self.config.user
+                            bodies.append(body)
+                    else:
+                        for _ in range(concurrency):
+                            text = render_prompt(prompt_template, generators)
+                            bodies.append(build_request_body(text, image_base64, user=self.config.user or None))
+
+                    # Each round fires exactly `concurrency` simultaneous requests
+                    if mode == LLM_MODE:
+                        async def do_llm_request(body):
+                            nonlocal error_count
                             try:
                                 lat, ttft, tokens, status = await self._send_streaming_request(
                                     client, endpoint, headers, body, timeout
@@ -293,12 +303,10 @@ class BenchmarkEngine:
                                 etype = classify_error(exc)
                                 errors_by_type[etype] = errors_by_type.get(etype, 0) + 1
 
-                        tasks = [asyncio.create_task(do_llm_request()) for _ in range(concurrency)]
+                        tasks = [asyncio.create_task(do_llm_request(b)) for b in bodies]
                     else:
-                        async def do_rampart_request():
+                        async def do_rampart_request(body):
                             nonlocal error_count
-                            text = render_prompt(prompt_template, generators)
-                            body = build_request_body(text, image_base64, user=self.config.user or None)
                             try:
                                 lat, status, decision, viols = await self._send_single_request(
                                     client, endpoint, headers, body, timeout
@@ -315,12 +323,12 @@ class BenchmarkEngine:
                                 etype = classify_error(exc)
                                 errors_by_type[etype] = errors_by_type.get(etype, 0) + 1
 
-                        tasks = [asyncio.create_task(do_rampart_request()) for _ in range(concurrency)]
+                        tasks = [asyncio.create_task(do_rampart_request(b)) for b in bodies]
 
+                    round_start = time.monotonic()
                     await asyncio.gather(*tasks)
+                    elapsed += time.monotonic() - round_start
                     total_requests += concurrency
-
-                elapsed = time.monotonic() - level_start
 
                 # Aggregate TPS = total tokens generated / total wall time
                 agg_tps = sum(total_tokens_all) / elapsed if elapsed > 0 else 0.0
