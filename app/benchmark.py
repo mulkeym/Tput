@@ -243,12 +243,7 @@ class BenchmarkEngine:
 
         rounds = self.config.requests_per_level  # number of sample rounds
 
-        # Semaphore caps true in-flight HTTP requests so we don't
-        # overwhelm the connection pool or remote server with a
-        # thundering-herd of coroutines all racing for sockets.
-        semaphore = asyncio.Semaphore(max_conn)
-
-        async with httpx.AsyncClient(limits=pool_limits, http2=True) as client:
+        async with httpx.AsyncClient(limits=pool_limits) as client:
             while concurrency <= self.config.max_concurrency:
                 level += 1
                 latencies: List[float] = []
@@ -283,10 +278,9 @@ class BenchmarkEngine:
                             if self.config.user:
                                 body["user"] = self.config.user
                             try:
-                                async with semaphore:
-                                    lat, ttft, tokens, status = await self._send_streaming_request(
-                                        client, endpoint, headers, body, timeout
-                                    )
+                                lat, ttft, tokens, status = await self._send_streaming_request(
+                                    client, endpoint, headers, body, timeout
+                                )
                                 latencies.append(lat)
                                 ttft_values.append(ttft)
                                 total_tokens_all.append(tokens)
@@ -306,10 +300,9 @@ class BenchmarkEngine:
                             text = render_prompt(prompt_template, generators)
                             body = build_request_body(text, image_base64, user=self.config.user or None)
                             try:
-                                async with semaphore:
-                                    lat, status, decision, viols = await self._send_single_request(
-                                        client, endpoint, headers, body, timeout
-                                    )
+                                lat, status, decision, viols = await self._send_single_request(
+                                    client, endpoint, headers, body, timeout
+                                )
                                 latencies.append(lat)
                                 for pid, cnt in viols.items():
                                     violations_agg[pid] = violations_agg.get(pid, 0) + cnt
