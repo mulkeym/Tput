@@ -130,8 +130,10 @@ document.querySelectorAll('.mode-btn').forEach(btn => {
     btn.classList.add('active');
     currentMode = btn.dataset.mode;
 
-    // Show/hide model field
+    // Show/hide model field & endpoint hint
     modelGroupEl.style.display = currentMode === 'llm' ? '' : 'none';
+    const endpointHint = $('endpoint-hint');
+    if (endpointHint) endpointHint.style.display = currentMode === 'rampart' ? '' : 'none';
 
     // Swap bottom panels
     if (currentMode === 'llm') {
