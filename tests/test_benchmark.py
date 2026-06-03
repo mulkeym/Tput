@@ -149,7 +149,7 @@ class TestBenchmarkEngine:
     async def test_engine_stops_when_threshold_exceeded(self):
         call_count = 0
 
-        async def mock_send(client, url, headers, body):
+        async def mock_send(client, url, headers, body, timeout=None):
             nonlocal call_count
             call_count += 1
             return 0.1 if call_count <= 2 else 2.5, 200, "fail", {"No-PII-Data": 1}
